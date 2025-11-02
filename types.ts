@@ -1,4 +1,3 @@
-
 export interface User {
   name: string;
   email: string;
@@ -53,4 +52,10 @@ export interface Recipe {
   totalProtein: number;
   totalCarbs: number;
   totalFat: number;
+}
+
+export interface WaterLogEntry {
+  id: string;
+  amount: number; // in ml
+  timestamp: string;
 }

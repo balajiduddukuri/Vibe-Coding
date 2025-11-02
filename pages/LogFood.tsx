@@ -1,13 +1,29 @@
-
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { addFoodLogEntry } from '../services/foodService';
 import { FOOD_DATABASE, MOCK_BARCODE_DB } from '../constants';
 import { Food, FoodLogEntry, MealType } from '../types';
-import { MagnifyingGlassIcon, QrCodeIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, QrCodeIcon, PencilSquareIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { GoogleGenAI, Type } from '@google/genai';
 
-type LogMode = 'search' | 'manual' | 'scan';
+
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result.split(',')[1]);
+      } else {
+        reject('Failed to convert blob to base64');
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
+type LogMode = 'search' | 'manual' | 'scan' | 'ai';
 
 const LogFood: React.FC = () => {
   const [mode, setMode] = useState<LogMode>('search');
@@ -17,6 +33,7 @@ const LogFood: React.FC = () => {
       case 'search': return <SearchLogger />;
       case 'manual': return <ManualLogger />;
       case 'scan': return <BarcodeLogger />;
+      case 'ai': return <AiLogger />;
       default: return <SearchLogger />;
     }
   }
@@ -33,8 +50,9 @@ const LogFood: React.FC = () => {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md">
         <div className="flex border-b border-gray-200 dark:border-gray-700">
           <TabButton currentMode={mode} targetMode='search' setMode={setMode} icon={MagnifyingGlassIcon}>Search</TabButton>
-          <TabButton currentMode={mode} targetMode='manual' setMode={setMode} icon={PencilSquareIcon}>Manual Entry</TabButton>
-          <TabButton currentMode={mode} targetMode='scan' setMode={setMode} icon={QrCodeIcon}>Scan Barcode</TabButton>
+          <TabButton currentMode={mode} targetMode='ai' setMode={setMode} icon={SparklesIcon}>AI Scan</TabButton>
+          <TabButton currentMode={mode} targetMode='manual' setMode={setMode} icon={PencilSquareIcon}>Manual</TabButton>
+          <TabButton currentMode={mode} targetMode='scan' setMode={setMode} icon={QrCodeIcon}>Barcode</TabButton>
         </div>
         <div className="p-6">
           {renderContent()}
@@ -134,6 +152,137 @@ const SearchLogger: React.FC = () => {
                 )}
             </div>
             {selectedFood && <AddFoodForm food={selectedFood} onAdd={() => setSelectedFood(null)} />}
+        </div>
+    );
+};
+
+const AiLogger: React.FC = () => {
+    const [imageFile, setImageFile] = useState<File | null>(null);
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [analysisResult, setAnalysisResult] = useState<Food[] | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setImageFile(file);
+            setImagePreview(URL.createObjectURL(file));
+            setAnalysisResult(null);
+            setError(null);
+        }
+    };
+
+    const handleAnalyze = async () => {
+        if (!imageFile) return;
+
+        setIsLoading(true);
+        setError(null);
+        setAnalysisResult(null);
+
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+            const base64Data = await blobToBase64(imageFile);
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: {
+                    parts: [
+                        { text: `Analyze the meal in this image. Identify each food item, estimate its weight in grams, and provide its nutritional information (calories, protein, carbs, fat) per 100g.
+                        Your response MUST be a JSON array of objects. Each object should represent a food item and have the following properties:
+                        - "id": a unique string for this item.
+                        - "name": The name of the food item.
+                        - "calories": Calories per 100g.
+                        - "protein": Protein in grams per 100g.
+                        - "carbs": Carbohydrates in grams per 100g.
+                        - "fat": Fat in grams per 100g.
+                        - "servingSize": The estimated weight of the item in the image, in grams.
+                        If you cannot identify any food, return an empty array.` },
+                        { inlineData: { mimeType: imageFile.type, data: base64Data } }
+                    ]
+                },
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            id: { type: Type.STRING },
+                            name: { type: Type.STRING },
+                            calories: { type: Type.NUMBER },
+                            protein: { type: Type.NUMBER },
+                            carbs: { type: Type.NUMBER },
+                            fat: { type: Type.NUMBER },
+                            servingSize: { type: Type.NUMBER },
+                          },
+                          required: ["id", "name", "calories", "protein", "carbs", "fat", "servingSize"],
+                        },
+                    }
+                }
+            });
+            
+            const jsonStr = response.text.trim();
+            const result = JSON.parse(jsonStr);
+
+            if (result && result.length > 0) {
+                setAnalysisResult(result);
+            } else {
+                setError("Could not identify any food items in the image. Please try another one.");
+            }
+
+        } catch (err) {
+            console.error("AI analysis failed:", err);
+            setError("Sorry, something went wrong during the analysis. Please try again.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+                Upload a photo of your meal, and our AI will identify the food items and estimate their nutritional values.
+            </p>
+            <input 
+                type="file" 
+                accept="image/*" 
+                onChange={handleFileChange} 
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-50 dark:file:bg-primary-700/20 file:text-primary-600 dark:file:text-primary-300 hover:file:bg-primary-100 dark:hover:file:bg-primary-700/30"
+            />
+
+            {imagePreview && (
+                <div className="flex flex-col items-center gap-4">
+                    <img src={imagePreview} alt="Meal preview" className="max-h-64 rounded-lg shadow-md" />
+                    <button 
+                        onClick={handleAnalyze} 
+                        disabled={isLoading} 
+                        className={`${commonButtonClasses} max-w-xs`}
+                    >
+                        {isLoading ? 'Analyzing...' : 'Analyze Meal'}
+                    </button>
+                </div>
+            )}
+            
+            {isLoading && 
+              <div className="flex justify-center items-center gap-2 text-gray-600 dark:text-gray-400">
+                <div className="w-6 h-6 border-2 border-t-transparent border-primary-500 rounded-full animate-spin"></div>
+                <span>Analyzing image...</span>
+              </div>
+            }
+            
+            {error && <p className="text-red-500 text-center">{error}</p>}
+
+            {analysisResult && (
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white">AI Analysis Results:</h3>
+                    {analysisResult.map((food, index) => (
+                        <AddFoodForm key={food.id || index} food={food} onAdd={() => {
+                            setAnalysisResult(prev => prev ? prev.filter((_, i) => i !== index) : null);
+                        }} />
+                    ))}
+                </div>
+            )}
         </div>
     );
 };

@@ -1,5 +1,4 @@
-
-import { FoodLogEntry, MealType, WeightEntry, Recipe, User } from '../types';
+import { FoodLogEntry, MealType, WeightEntry, Recipe, User, WaterLogEntry } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 const getLocalStorageKey = (userEmail: string, key: string) => `calorie-tracker-${key}-${userEmail}`;
@@ -40,6 +39,32 @@ export const getFoodLogsForPastNDays = (userEmail: string, days: number): { [dat
     }
     return logsByDate;
 }
+
+// Water Log Service
+export const getWaterLogForDate = (userEmail: string, date: string): WaterLogEntry[] => {
+  const key = getLocalStorageKey(userEmail, 'waterLogs');
+  const allLogs: WaterLogEntry[] = JSON.parse(localStorage.getItem(key) || '[]');
+  return allLogs.filter(entry => entry.timestamp.startsWith(date));
+};
+
+export const addWaterLogEntry = (userEmail: string, amount: number): void => {
+  const key = getLocalStorageKey(userEmail, 'waterLogs');
+  const allLogs: WaterLogEntry[] = JSON.parse(localStorage.getItem(key) || '[]');
+  const newEntry: WaterLogEntry = {
+    id: uuidv4(),
+    amount,
+    timestamp: new Date().toISOString(),
+  };
+  allLogs.push(newEntry);
+  localStorage.setItem(key, JSON.stringify(allLogs));
+};
+
+export const deleteWaterLogEntry = (userEmail: string, entryId: string): void => {
+    const key = getLocalStorageKey(userEmail, 'waterLogs');
+    let allLogs: WaterLogEntry[] = JSON.parse(localStorage.getItem(key) || '[]');
+    allLogs = allLogs.filter(entry => entry.id !== entryId);
+    localStorage.setItem(key, JSON.stringify(allLogs));
+};
 
 // Weight History Service
 export const getWeightHistory = (userEmail: string): WeightEntry[] => {

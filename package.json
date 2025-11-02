@@ -14,7 +14,8 @@
     "uuid": "^13.0.0",
     "@heroicons/react": "^2.2.0",
     "react-dom": "^19.2.0",
-    "recharts": "^3.3.0"
+    "recharts": "^3.3.0",
+    "@google/genai": "^0.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

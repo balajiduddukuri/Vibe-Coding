@@ -1,5 +1,7 @@
 {
   "name": "Copy of AI Calorie Counter",
   "description": "A modern AI-powered web application to track daily calorie intake, monitor nutritional macros, and analyze recipes. Features include food logging, progress tracking with charts, and a user profile to calculate personalized goals.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }

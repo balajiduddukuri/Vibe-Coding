@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getFoodLogForDate, deleteFoodLogEntry } from '../services/foodService';
-import { FoodLogEntry, MealType } from '../types';
+import { getFoodLogForDate, deleteFoodLogEntry, getWaterLogForDate, addWaterLogEntry } from '../services/foodService';
+import { FoodLogEntry, WaterLogEntry } from '../types';
 import { Link } from 'react-router-dom';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { PlusIcon, FireIcon, TrashIcon } from '@heroicons/react/24/outline';
@@ -30,15 +29,58 @@ const MealCard: React.FC<{ title: string; items: FoodLogEntry[]; onDelete: (id: 
   </div>
 );
 
+const WATER_GOAL_ML = 2000;
+const GLASS_SIZE_ML = 250;
+
+const WaterTrackerCard: React.FC<{
+  totalWater: number;
+  onLogWater: (amount: number) => void;
+}> = ({ totalWater, onLogWater }) => {
+  const totalGlasses = WATER_GOAL_ML / GLASS_SIZE_ML;
+  const glassesConsumed = Math.floor(totalWater / GLASS_SIZE_ML);
+
+  return (
+    <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md">
+      <h3 className="text-xl font-semibold mb-2">Water Intake</h3>
+      <div className="text-center my-4">
+        <p className="text-3xl font-bold text-sky-500">{totalWater}<span className="text-lg text-gray-500 dark:text-gray-400"> / {WATER_GOAL_ML} ml</span></p>
+      </div>
+      <div className="flex justify-center space-x-2 mb-4">
+        {Array.from({ length: totalGlasses }).map((_, i) => (
+          <div key={i} title={`${i + 1} glass`} className={`w-6 h-6 rounded-full transition-colors ${i < glassesConsumed ? 'bg-sky-400' : 'bg-gray-300 dark:bg-gray-600'}`}>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex justify-center gap-4 text-sm">
+        <button
+          onClick={() => onLogWater(250)}
+          className="px-4 py-2 font-semibold text-sky-600 bg-sky-100 dark:text-sky-300 dark:bg-sky-800/50 rounded-lg hover:bg-sky-200 dark:hover:bg-sky-800 transition-colors"
+        >
+          +1 Glass
+        </button>
+        <button
+          onClick={() => onLogWater(500)}
+          className="px-4 py-2 font-semibold text-sky-600 bg-sky-100 dark:text-sky-300 dark:bg-sky-800/50 rounded-lg hover:bg-sky-200 dark:hover:bg-sky-800 transition-colors"
+        >
+          +1 Bottle
+        </button>
+      </div>
+    </div>
+  );
+};
+
+
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [todaysLog, setTodaysLog] = useState<FoodLogEntry[]>([]);
+  const [todaysWater, setTodaysWater] = useState<WaterLogEntry[]>([]);
   const [refresh, setRefresh] = useState(false);
 
   useEffect(() => {
     if (user) {
       const today = new Date().toISOString().split('T')[0];
       setTodaysLog(getFoodLogForDate(user.email, today));
+      setTodaysWater(getWaterLogForDate(user.email, today));
     }
   }, [user, refresh]);
 
@@ -48,6 +90,13 @@ const Dashboard: React.FC = () => {
         setRefresh(prev => !prev);
     }
   }
+  
+  const handleLogWater = (amount: number) => {
+    if (user) {
+      addWaterLogEntry(user.email, amount);
+      setRefresh(prev => !prev);
+    }
+  };
 
   const summary = useMemo(() => {
     const initial = { calories: 0, protein: 0, carbs: 0, fat: 0 };
@@ -59,6 +108,10 @@ const Dashboard: React.FC = () => {
       return acc;
     }, initial);
   }, [todaysLog]);
+
+  const totalWater = useMemo(() => {
+    return todaysWater.reduce((acc, entry) => acc + entry.amount, 0);
+  }, [todaysWater]);
 
   const remainingCalories = user ? user.dailyCalorieGoal - summary.calories : 0;
   const progressPercent = user ? Math.min((summary.calories / user.dailyCalorieGoal) * 100, 100) : 0;
@@ -111,36 +164,39 @@ const Dashboard: React.FC = () => {
             </div>
         </div>
         
-        {/* Macros */}
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md">
-            <h3 className="text-xl font-semibold mb-2">Macronutrients</h3>
-            <div className="h-48">
-             {totalMacros > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                        <Pie data={macroData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={5}>
-                        {macroData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                        </Pie>
-                        <Tooltip formatter={(value: number) => `${value.toFixed(1)}g`} />
-                        <Legend iconType="circle" />
-                    </PieChart>
-                </ResponsiveContainer>
-             ) : (<div className="flex items-center justify-center h-full text-gray-500">Log food to see macros</div>)}
+        <div className="space-y-6">
+            {/* Macros */}
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md">
+                <h3 className="text-xl font-semibold mb-2">Macronutrients</h3>
+                <div className="h-48">
+                {totalMacros > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie data={macroData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={5}>
+                            {macroData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                            </Pie>
+                            <Tooltip formatter={(value: number) => `${value.toFixed(1)}g`} />
+                            <Legend iconType="circle" />
+                        </PieChart>
+                    </ResponsiveContainer>
+                ) : (<div className="flex items-center justify-center h-full text-gray-500">Log food to see macros</div>)}
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-center text-sm">
+                    <div>
+                        <p className="font-bold" style={{color: macroData[0].color}}>{summary.protein.toFixed(1)}g</p>
+                        <p className="text-gray-500 dark:text-gray-400">Protein</p>
+                    </div>
+                    <div>
+                        <p className="font-bold" style={{color: macroData[1].color}}>{summary.carbs.toFixed(1)}g</p>
+                        <p className="text-gray-500 dark:text-gray-400">Carbs</p>
+                    </div>
+                    <div>
+                        <p className="font-bold" style={{color: macroData[2].color}}>{summary.fat.toFixed(1)}g</p>
+                        <p className="text-gray-500 dark:text-gray-400">Fat</p>
+                    </div>
+                </div>
             </div>
-             <div className="mt-4 grid grid-cols-3 gap-2 text-center text-sm">
-                <div>
-                    <p className="font-bold" style={{color: macroData[0].color}}>{summary.protein.toFixed(1)}g</p>
-                    <p className="text-gray-500 dark:text-gray-400">Protein</p>
-                </div>
-                <div>
-                    <p className="font-bold" style={{color: macroData[1].color}}>{summary.carbs.toFixed(1)}g</p>
-                    <p className="text-gray-500 dark:text-gray-400">Carbs</p>
-                </div>
-                <div>
-                    <p className="font-bold" style={{color: macroData[2].color}}>{summary.fat.toFixed(1)}g</p>
-                    <p className="text-gray-500 dark:text-gray-400">Fat</p>
-                </div>
-            </div>
+            <WaterTrackerCard totalWater={totalWater} onLogWater={handleLogWater} />
         </div>
       </div>
 
